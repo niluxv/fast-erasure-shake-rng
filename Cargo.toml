@@ -1,0 +1,19 @@
+[package]
+name = "fast-erasure-shake-rng"
+version = "0.1.0"
+edition = "2021"
+keywords = ["random", "rng", "keccak", "sponge"]
+categories = ["algorithms", "no-std"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["getrandom"]
+getrandom = ["dep:getrandom", "rand_core?/getrandom"]
+rand-core = ["dep:rand_core"]
+
+[dependencies]
+keccak = {version = "0.1"}
+zeroize = {version = "1.5"}
+getrandom = {version = "0.2", optional = true}
+rand_core = {version = "0.6", optional = true}
