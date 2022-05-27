@@ -2,8 +2,16 @@
 name = "fast-erasure-shake-rng"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Fast erasure (forward secure) sponge/duplex based PRNG using the Keccak permutation"
+readme = "README.md"
 keywords = ["random", "rng", "keccak", "sponge"]
 categories = ["algorithms", "no-std"]
+repository = "https://github.com/niluxv/fast-erasure-shake-rng"
+include = ["src/**/*", "COPYING", "LICENSE.*", "README.md"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

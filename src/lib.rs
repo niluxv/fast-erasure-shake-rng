@@ -1,4 +1,4 @@
-//! A cryptographically secure fast erasure  (i.e. forward secure) pseudo-random
+//! A cryptographically secure fast erasure (i.e. forward secure) pseudo-random
 //! number generator, based on the sponge/duplex construction and the keccak-*f*
 //! permutation.
 //!
@@ -354,7 +354,9 @@ mod rand_core {
         /// Very slow due to fast erasure. Don't use.
         fn next_u32(&mut self) -> u32 {
             // just truncate an `u64`
-            self.next_u64() as u32
+            #[allow(clippy::cast_possible_truncation)]
+            let res = self.next_u64() as u32;
+            res
         }
 
         /// Very slow due to fast erasure. Don't use.
@@ -380,14 +382,8 @@ mod rand_core {
     #[cfg_attr(doc, doc(cfg(feature = "rand_core")))]
     impl rand_core::CryptoRng for RngState {}
 
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
     pub struct Seed([u64; 8]);
-
-    impl Default for Seed {
-        fn default() -> Self {
-            Self([0; 8])
-        }
-    }
 
     impl AsRef<[u8]> for Seed {
         fn as_ref(&self) -> &[u8] {

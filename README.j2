@@ -1,0 +1,21 @@
+# {{ crate }}
+    {%- if license is defined %} ![License: {{ license }}](https://img.shields.io/badge/license-{{ license | replace(from="-", to="--") | urlencode }}-blue){% endif %}
+    {%- if crate is defined %} [![{{ crate }} on crates.io](https://img.shields.io/crates/v/{{ crate | urlencode }})](https://crates.io/crates/{{ crate | urlencode }}){% endif %}
+    {%- if repository is defined %} [![Source Code Repository](https://img.shields.io/badge/Code-On%20GitHub-blue?logo=GitHub)]({{ repository }}){% endif %}
+
+{{ readme }}
+## TODOs
+ - [ ] improve throughput for large requests by utilizing intermediate results in the "zeroized state part"
+ - [ ] add a fast-erasure buffered mode for more efficient frequent small requests
+
+
+## Changelog
+See `CHANGELOG.md`.
+
+
+## Documentation
+The API documentation of `fast-erasure-shake-rng` is available at <https://docs.rs/secmem-alloc/*/fast_erasure_shake_rng/>.
+
+{% if links != "" %}
+{{ links }}
+{%- endif %}
