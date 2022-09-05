@@ -110,6 +110,114 @@
 //! bytes) zeroized for forward secrecy and one that acts as the usual (entropy
 //! collecting) state part.
 //!
+//! ## Detailed description
+//! The keccak state consists, as usual, of 1600 bits, divided into 25 lanes of
+//! 64 bits each. We divide it into three "areas":
+//!
+//! 1. An area we call the "rate area", consisting of the top 9 lanes, therefore
+//! sized 576 bits.
+//! 2. An area we call the "zeroized capacity area", consisting of the next 8
+//! lanes, therefore sized 512 bits.
+//! 3. An area we call the "capacity area", consisting of the last 8 lanes,
+//! therefore sized 512 bits.
+//!
+//! We now define three basic actions on this state, which will serve as the
+//! building blocks for all other (user facing) operations:
+//!
+//! 1. A basic action we call "input". First xor 576 bits of input data into the
+//! "rate area" of the state. Then apply keccak-f to the state.
+//! 2. A basic action we call "initial-output". First output the bytes in the
+//! "rate area" as random output bytes. Then apply keccak-f.
+//! 3. A basic action we call "intermediate-output". First output the bytes in
+//! the "rate area" and the "zeroized capacity area" as random output bytes.
+//! Then apply keccak-f to the state.
+//! 4. A basic action we call "make-forward-secure". Zeroize (i.e., fill with
+//! zero/null bytes) the "zeroized capacity area".
+//!
+//! The first basic actions is used to absorb entropy from inputs into the
+//! state. The next two are used squeeze output from the state. The action
+//! "make-forward-secure" creates a point of forward-security: if the state is
+//! leaked after this action then an attacker won't be able to infer inputs to
+//! or outputs from the RNG performed before this action.
+//!
+//! In a diagram:
+//! ```ascii
+//! Basic action 1: input                     State:      Basic action 2: initial-output
+//!                                          ┌────────┐
+//!                                          │Rate    │
+//!                               Xor input  │        │  Output
+//!                              ───────────►│9 lanes ├───────────►
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          ├────────┤
+//!                                          │Zeroized│
+//!                            Leave alone   │capacity│  Leave alone
+//!                                          │        │
+//!                                          │8 lanes │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          ├────────┤
+//!                                          │Capacity│
+//!                            Leave alone   │        │  Leave alone
+//!                                          │8 lanes │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//! Then apply Keccak-f1600 to "state".      │        │   Then apply Keccak-f1600 to "state".
+//!                                          │        │
+//!                                          └────────┘
+//!
+//!
+//! Basic action 3: intermediate-output       State:      Basic action 4: make-forward-secure
+//!                                          ┌────────┐
+//!                                          │Rate    │
+//!                                  Output  │        │  Leave alone
+//!                              ◄───────────┤9 lanes │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          ├────────┤
+//!                                          │Zeroized│
+//!                                  Output  │capacity│  Zeroize
+//!                              ◄───────────┤        │◄───────────
+//!                                          │8 lanes │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//!                                          ├────────┤
+//!                                          │Capacity│
+//!                            Leave alone   │        │  Leave alone
+//!                                          │8 lanes │
+//!                                          │        │
+//!                                          │        │
+//!                                          │        │
+//! Then apply Keccak-f1600 to "state".      │        │
+//!                                          │        │
+//!                                          └────────┘
+//! ```
+//!
+//! Inputting data into the the RNG works as follows: The data is padded to a
+//! multiple of 576 bits (72 bytes) using simple 10*1 bit padding. For each 576
+//! bit chunk of input, the basic action "input" is executed with this chunk as
+//! input. Finally, the basic action "make-forward-secure" is performed.
+//!
+//! Outputting data from the RNG works as follows: First, the basic action
+//! "initial-output" is executed, and the output of it is used as the first part
+//! of the output of the RNG. If more data was requested (i.e., more than 72
+//! bytes), then the basic action "intermediate-output" is executed repeatedly,
+//! until enough output has been generated. Finally, the basic action
+//! "make-forward-secure" is performed.
+//!
 //! [`getrandom` crate]: https://crates.io/crates/getrandom
 //! [`rand_core` crate]: https://crates.io/crates/rand_core
 #![cfg_attr(doc, feature(doc_cfg))]
@@ -144,6 +252,12 @@ fn u64_slice_as_ne_bytes_mut<'a>(slice: &'a mut [u64]) -> &'a mut [u8] {
     let len: usize = core::mem::size_of_val::<[u64]>(slice);
     unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), len) }
 }
+
+/// Module constaining a structure for the keccak state and functions to operate
+/// on it in terms of the three "areas" as defined in the top level
+/// documentation.
+mod internal_state;
+use internal_state::InternalState;
 
 /// The PRNG this crate is all about. Cryptographically secure fast-erasure
 /// deterministic pseudo-random number generator (PRNG). It is deterministic but
@@ -194,56 +308,35 @@ fn u64_slice_as_ne_bytes_mut<'a>(slice: &'a mut [u64]) -> &'a mut [u8] {
 ///
 /// [`getrandom` crate]: https://crates.io/crates/getrandom
 pub struct RngState {
-    state: [u64; LANES],
-}
-
-/// The keccak-f\[1600\] = keccack-*p*\[1600, 24\] permutation.
-fn keccak_f1600(state: &mut [u64; LANES]) {
-    keccak::f1600(state);
+    state: InternalState,
 }
 
 impl RngState {
     /// Apply keccak-f\[1600\] to the state.
     fn apply_f(&mut self) {
-        keccak_f1600(&mut self.state);
+        self.state.apply_f();
     }
 
-    /// Zeroize the "second" capacity part of the state. Doing this after an
-    /// application of the permutation makes inverting the permutation
-    /// impossible, therefore establishing forward secrecy.
-    fn zeroize_for_forward_security(&mut self) {
-        use zeroize::Zeroize;
+    // The four basic actions
 
-        self.state[RATE_LANES..RATE_LANES + CAPACITY_LANES].zeroize()
-    }
-
-    /// Apply keccak permutation and zeroize the "second" capacity part of the
-    /// state. This establishes forward secrecy.
-    fn roll_forward(&mut self) {
-        self.apply_f();
-        self.zeroize_for_forward_security();
-    }
-
-    /// Get the rate part of the state as a slice. Result depends on endianness.
-    fn get_rate_bytes(&self) -> &[u8] {
-        u64_slice_as_ne_bytes(&self.state[..RATE_LANES])
-    }
-
-    /// Get the rate part of the state as a mutable slice. Result depends on
-    /// endianness.
-    fn get_rate_bytes_mut(&mut self) -> &mut [u8] {
-        u64_slice_as_ne_bytes_mut(&mut self.state[..RATE_LANES])
-    }
+    // The following two functions implement the basic action "input".
+    // `absorb_partial_block_padded` handles the case where padding is neccessary
+    // (i.e. the last input chunk) and `absorb_block` handles intermediate full
+    // chunks
 
     /// Absorb a partial block `block` of < `RATE_BYTES` bytes, applying proper
     /// padding and running the permutation.
     ///
+    /// The padding is written directly into the state to avoid copying the
+    /// input `block` to a larger buffer.
+    ///
     /// # Panics
-    /// If `block.len() < RATE_BYTES`.
+    /// Panics if the following condition is violated: `block.len() <
+    /// RATE_BYTES`.
     #[inline]
     fn absorb_partial_block_padded(&mut self, block: &[u8]) {
         assert!(block.len() < RATE_BYTES);
-        let rate_state = self.get_rate_bytes_mut();
+        let rate_state = self.state.get_rate_bytes_mut();
         for (b, s) in block.iter().zip(rate_state.iter_mut()) {
             *s ^= b;
         }
@@ -255,11 +348,48 @@ impl RngState {
     /// Absorb a full block `block` of precisely `RATE_BYTES` bytes, running the
     /// permutation.
     fn absorb_block(&mut self, block: &[u8; RATE_BYTES]) {
-        for (b, s) in block.iter().zip(self.get_rate_bytes_mut().iter_mut()) {
+        for (b, s) in block.iter().zip(self.state.get_rate_bytes_mut().iter_mut()) {
             *s ^= b;
         }
         self.apply_f();
     }
+
+    /// Basic action "initial-output".
+    ///
+    /// First output the bytes in the "rate area" as random output bytes, by
+    /// writing them to `dest`. Then apply keccak-f.
+    fn basic_initial_output(&mut self, dest: &mut [u8]) {
+        let len = core::cmp::min(dest.len(), RATE_BYTES);
+        let block = &mut dest[..len];
+        block.copy_from_slice(&self.state.get_rate_bytes()[..len]);
+        self.apply_f();
+    }
+
+    /// Basic action "intermediate-output".
+    ///
+    /// First output the bytes in the "rate area" and "zeroized capacity area"
+    /// as random output bytes, by writing them to `dest`. Then apply
+    /// keccak-f.
+    fn basic_intermediate_output(&mut self, dest: &mut [u8]) {
+        let len = core::cmp::min(dest.len(), RATE_BYTES + CAPACITY_BYTES);
+        let block = &mut dest[..len];
+        block.copy_from_slice(&self.state.get_rate_zeroized_capacity_bytes()[..len]);
+        self.apply_f();
+    }
+
+    /// Basic action "make-forward-secure".
+    ///
+    /// Zeroize (i.e., fill with zero/null bytes) the "zeroized capacity area".
+    /// Doing this after an application of the permutation makes inverting the
+    /// permutation impossible, therefore establishing forward secrecy.
+    ///
+    /// If the state is leaked after this action then an attacker won't be able
+    /// to infer inputs to or outputs from the RNG performed before this action.
+    fn basic_make_forward_secure(&mut self) {
+        self.state.zeroize_for_forward_security()
+    }
+
+    // Higher level user interface
 
     /// (Re)seed the RNG with data `seed`. `seed` can be of arbitrary length.
     /// With high entropy data, i.e. (almost) uniform random bytes, you need *at
@@ -269,7 +399,7 @@ impl RngState {
         for block in &mut blocks {
             self.absorb_block(block.try_into().unwrap());
         }
-        // handle remainder and padding
+        // handle remainder with padding
         self.absorb_partial_block_padded(blocks.remainder());
     }
 
@@ -278,6 +408,10 @@ impl RngState {
     ///
     /// The buffer will be zeroized so the secret seeding material is not left
     /// in memory.
+    ///
+    /// 64 bytes (512 bits) can be absorbed into the state with a single call to
+    /// keccak-f, so this function gives a convenient, fast and secure way to
+    /// seed the RNG.
     pub fn seed_with_64<E, F: FnOnce(&mut [u8]) -> Result<(), E>>(
         &mut self,
         f: F,
@@ -301,7 +435,9 @@ impl RngState {
     /// not random at all! Use [`Self::new_from_getrandom`] to create an already
     /// seeded instance of the RNG.
     pub fn new_unseeded() -> Self {
-        let mut rng = Self { state: [0; LANES] };
+        let mut rng = Self {
+            state: InternalState::new(),
+        };
         const DIVERSIFIER: &[u8; 80] =
             b"FAST ERASURE KECCAK SPONGE/DUPLEX PRNG\0RUST CRATE fast-erasure-shake-rng 0.1.0\0\0";
         rng.seed(DIVERSIFIER.as_ref());
@@ -320,19 +456,21 @@ impl RngState {
 
     /// Fill `dest` with random bytes. The RNG MUST be seeded prior to using
     /// this method.
-    pub fn fill_random_bytes(&mut self, dest: &mut [u8]) {
-        let mut blocks = dest.chunks_exact_mut(RATE_BYTES);
-        for block in &mut blocks {
-            block.clone_from_slice(self.get_rate_bytes());
-            // we could just `apply_f` here if we always `zeroize_for_forward_security` at
-            // the end
-            self.roll_forward();
+    pub fn fill_random_bytes(&mut self, mut dest: &mut [u8]) {
+        self.basic_initial_output(dest);
+        if dest.len() > RATE_BYTES {
+            dest = &mut dest[RATE_BYTES..];
+
+            loop {
+                self.basic_intermediate_output(dest);
+                if dest.len() <= RATE_BYTES + CAPACITY_BYTES {
+                    break;
+                }
+                dest = &mut dest[RATE_BYTES + CAPACITY_BYTES..];
+            }
         }
-        let remainder = blocks.into_remainder();
-        if !remainder.is_empty() {
-            remainder.clone_from_slice(&self.get_rate_bytes()[..remainder.len()]);
-            self.roll_forward();
-        }
+
+        self.basic_make_forward_secure();
     }
 
     /// Output an array `[u8; N]` filled with random bytes. The RNG MUST be
@@ -361,9 +499,8 @@ mod rand_core {
 
         /// Very slow due to fast erasure. Don't use.
         fn next_u64(&mut self) -> u64 {
-            let res = self.state[0];
-            self.roll_forward();
-            res
+            let buf: [u8; 8] = self.get_random_bytes();
+            u64::from_ne_bytes(buf)
         }
 
         /// Equivalent to [`Self::fill_random_bytes`].
@@ -431,7 +568,7 @@ mod rand_core {
         /// An `u64` doesn't give enough entropy. Don't use!
         fn seed_from_u64(state: u64) -> Self {
             // A PCG32 is not going to help here. Keccak is secure; the problem is that this
-            // seed is way to small (can't contain enough randomness).
+            // seed is way to small (can't contain enough entropy).
             let mut rng = Self::new_unseeded();
             rng.absorb_partial_block_padded(state.to_ne_bytes().as_ref());
             rng
