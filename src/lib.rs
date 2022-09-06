@@ -439,7 +439,7 @@ impl RngState {
             state: InternalState::new(),
         };
         const DIVERSIFIER: &[u8; 80] =
-            b"FAST ERASURE KECCAK SPONGE/DUPLEX PRNG\0RUST CRATE fast-erasure-shake-rng 0.1.0\0\0";
+            b"FAST ERASURE KECCAK SPONGE/DUPLEX PRNG\0RUST CRATE fast-erasure-shake-rng 0.2.0\0\0";
         rng.seed(DIVERSIFIER.as_ref());
         rng
     }
