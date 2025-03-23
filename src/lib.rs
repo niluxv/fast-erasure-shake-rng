@@ -412,7 +412,26 @@ impl RngState {
     /// 64 bytes (512 bits) can be absorbed into the state with a single call to
     /// keccak-f, so this function gives a convenient, fast and secure way to
     /// seed the RNG.
-    pub fn seed_with_64<E, F: FnOnce(&mut [u8]) -> Result<(), E>>(
+    ///
+    /// When `f` is failable use [`Self::try_seed_with_64`] instead
+    pub fn seed_with_64<F: FnOnce(&mut [u8])>(&mut self, f: F) {
+        let mut buffer = zeroize::Zeroizing::new([0u64; 8]);
+        f(u64_slice_as_ne_bytes_mut(buffer.as_mut()));
+        self.absorb_partial_block_padded(u64_slice_as_ne_bytes(buffer.as_ref()));
+    }
+
+    /// Call the closure `f` with a buffer of 64 bytes, then (re)seed the RNG
+    /// using the data written to the buffer.
+    ///
+    /// The buffer will be zeroized so the secret seeding material is not left
+    /// in memory.
+    ///
+    /// 64 bytes (512 bits) can be absorbed into the state with a single call to
+    /// keccak-f, so this function gives a convenient, fast and secure way to
+    /// seed the RNG.
+    ///
+    /// When `f` is infallible use [`Self::seed_with_64`] instead.
+    pub fn try_seed_with_64<E, F: FnOnce(&mut [u8]) -> Result<(), E>>(
         &mut self,
         f: F,
     ) -> Result<(), E> {
@@ -427,7 +446,7 @@ impl RngState {
     #[cfg(feature = "getrandom")]
     #[cfg_attr(doc, doc(cfg(feature = "getrandom")))]
     pub fn seed_with_getrandom(&mut self) -> Result<(), getrandom::Error> {
-        self.seed_with_64(getrandom::getrandom)
+        self.try_seed_with_64(getrandom::fill)
     }
 
     /// Create a new unseeded instance of the RNG. You MUST seed the RNG, e.g.
@@ -507,13 +526,6 @@ mod rand_core {
         fn fill_bytes(&mut self, dest: &mut [u8]) {
             self.fill_random_bytes(dest)
         }
-
-        /// Equivalent to [`Self::fill_random_bytes`]. Always returns succes
-        /// (`Ok(())`).
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-            self.fill_random_bytes(dest);
-            Ok(())
-        }
     }
 
     #[cfg_attr(doc, doc(cfg(feature = "rand_core")))]
@@ -579,10 +591,22 @@ mod rand_core {
         ///
         /// To seed from the OS RNG use the more convenient
         /// [`Self::new_from_getrandom`].
-        fn from_rng<R: rand_core::RngCore>(mut seeder_rng: R) -> Result<Self, rand_core::Error> {
+        fn from_rng(seeder_rng: &mut impl rand_core::RngCore) -> Self {
             // Don't leave a copy of the seeding material.
             let mut rng = Self::new_unseeded();
-            rng.seed_with_64(|buf| seeder_rng.try_fill_bytes(buf))?;
+            rng.seed_with_64(|buf| seeder_rng.fill_bytes(buf));
+            rng
+        }
+
+        /// Create instance of this PRNG seeded with output from `rng`. `rng`
+        /// should be a cryptographically secure RNG, for example the OS RNG.
+        ///
+        /// To seed from the OS RNG use the more convenient
+        /// [`Self::new_from_getrandom`].
+        fn try_from_rng<R: rand_core::TryRngCore>(seeder_rng: &mut R) -> Result<Self, R::Error> {
+            // Don't leave a copy of the seeding material.
+            let mut rng = Self::new_unseeded();
+            rng.try_seed_with_64(|buf| seeder_rng.try_fill_bytes(buf))?;
             Ok(rng)
         }
 
@@ -592,8 +616,14 @@ mod rand_core {
         /// If the call to the OS RNG (e.g. the `getrandom` syscall on linux)
         /// fails.
         #[cfg(feature = "getrandom")]
-        fn from_entropy() -> Self {
-            Self::new_from_getrandom().expect("from_entropy failed")
+        fn from_os_rng() -> Self {
+            Self::new_from_getrandom().expect("from_os_rng failed")
+        }
+
+        /// Same as [`Self::new_from_getrandom`].
+        #[cfg(feature = "getrandom")]
+        fn try_from_os_rng() -> Result<Self, getrandom::Error> {
+            Self::new_from_getrandom()
         }
     }
 }

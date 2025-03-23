@@ -17,11 +17,11 @@ all-features = true
 
 [features]
 default = ["getrandom"]
-getrandom = ["dep:getrandom", "rand_core?/getrandom"]
+getrandom = ["dep:getrandom", "rand_core?/os_rng"]
 rand-core = ["dep:rand_core"]
 
 [dependencies]
-keccak = {version = "0.1"}
-zeroize = {version = "1.5"}
-getrandom = {version = "0.2", optional = true}
-rand_core = {version = "0.6", optional = true}
+keccak = { version = "0.1" }
+zeroize = { version = "1.5" }
+getrandom = { version = "0.3", optional = true }
+rand_core = { version = "0.9", optional = true }
