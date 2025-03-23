@@ -115,24 +115,24 @@
 //! 64 bits each. We divide it into three "areas":
 //!
 //! 1. An area we call the "rate area", consisting of the top 9 lanes, therefore
-//! sized 576 bits.
+//!    sized 576 bits.
 //! 2. An area we call the "zeroized capacity area", consisting of the next 8
-//! lanes, therefore sized 512 bits.
+//!    lanes, therefore sized 512 bits.
 //! 3. An area we call the "capacity area", consisting of the last 8 lanes,
-//! therefore sized 512 bits.
+//!    therefore sized 512 bits.
 //!
 //! We now define three basic actions on this state, which will serve as the
 //! building blocks for all other (user facing) operations:
 //!
 //! 1. A basic action we call "input". First xor 576 bits of input data into the
-//! "rate area" of the state. Then apply keccak-f to the state.
+//!    "rate area" of the state. Then apply keccak-f to the state.
 //! 2. A basic action we call "initial-output". First output the bytes in the
-//! "rate area" as random output bytes. Then apply keccak-f.
+//!    "rate area" as random output bytes. Then apply keccak-f.
 //! 3. A basic action we call "intermediate-output". First output the bytes in
-//! the "rate area" and the "zeroized capacity area" as random output bytes.
-//! Then apply keccak-f to the state.
+//!    the "rate area" and the "zeroized capacity area" as random output bytes.
+//!    Then apply keccak-f to the state.
 //! 4. A basic action we call "make-forward-secure". Zeroize (i.e., fill with
-//! zero/null bytes) the "zeroized capacity area".
+//!    zero/null bytes) the "zeroized capacity area".
 //!
 //! The first basic actions is used to absorb entropy from inputs into the
 //! state. The next two are used squeeze output from the state. The action
