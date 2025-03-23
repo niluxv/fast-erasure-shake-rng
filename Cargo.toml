@@ -1,6 +1,6 @@
 [package]
 name = "fast-erasure-shake-rng"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Fast erasure (forward secure) sponge/duplex based PRNG using the Keccak permutation"
@@ -9,6 +9,7 @@ keywords = ["random", "rng", "keccak", "sponge"]
 categories = ["algorithms", "no-std"]
 repository = "https://github.com/niluxv/fast-erasure-shake-rng"
 include = ["src/**/*", "COPYING", "LICENSE.*", "README.md"]
+rust-version = "1.63"
 
 [package.metadata.docs.rs]
 all-features = true

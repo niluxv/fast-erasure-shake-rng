@@ -1,8 +1,15 @@
 # Changelog
 
+### 0.3.0 - 2025-03-23
+### Changed
+- **Breaking:** Rename `RngState::seed_with_64` to `RngState::try_seed_with_64`
+  and add new `RngState::seed_with_64` for infallible seed functions.
+- **Breaking:** Update public `rand_core` dependency to version `0.9`.
+- **Breaking:** Update public `getrandom` dependency to version `0.3`.
+
 ## 0.2.0 - 2022-09-06
 ### Added
-- Proper documentation of how the RNG works.
+- Properly document how the RNG works.
 
 ### Changed
 - Use the intermediate results in the "zeroized capacity area" as RNG output.
